@@ -1,0 +1,1194 @@
+---
+title: "JSTP-Interval Estimation for Binomial Proportions Under Differential Privacy"
+author: "KAO, HSUAN-CHEN(Justin)"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    latex_engine: xelatex
+  html_document:
+    df_print: paged
+geometry: margin=0.5in
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+rm(list=ls())
+```
+
+# Method: epsilon-DP: The code below is for n = 1000; for n = 100, please set n = 100.
+
+## We set set.seed(12345) for all code to ensure reproducibility in the paper submitted to JSTP. Furthermore, the for loop takes a long time to run; therefore, using cache = TRUE is highly recommended for the main chunk.
+
+
+### Wald and Wilson without Differential Privacy
+
+```{r cache=TRUE}
+library(dplyr)  
+
+set.seed(12345)
+
+wald_confidence_interval_no_dp <- function(p_hat, n, alpha = 0.05) {
+  z_alpha <- qnorm(1 - alpha / 2)  
+  var_p_hat <- (p_hat * (1 - p_hat)) / n
+  lower_bound <- p_hat - z_alpha * sqrt(var_p_hat)
+  upper_bound <- p_hat + z_alpha * sqrt(var_p_hat)
+  return(c(lower_bound, upper_bound, upper_bound - lower_bound)) 
+}
+
+wilson_confidence_interval_no_dp <- function(p_hat, n, alpha = 0.05) {
+  z_alpha <- qnorm(1 - alpha / 2)  
+  A <- n + z_alpha^2
+  B <- -(2 * n * p_hat + z_alpha^2)
+  C <- n * p_hat^2
+  discriminant <- B^2 - 4 * A * C
+  if (discriminant < 0) stop("Discriminant is negative, no real solutions.")
+  lower_bound <- (-B - sqrt(discriminant)) / (2 * A)
+  upper_bound <- (-B + sqrt(discriminant)) / (2 * A)
+  return(c(lower_bound, upper_bound, upper_bound - lower_bound))
+}
+
+# change parameters for the replication of this paper or for other studies
+n <- 1000  
+ps <- c(0.1, 0.2, 0.5, 0.8)  
+num_simulations <- 5000  
+alpha <- 0.05  
+
+simulation_p_hat <- list()
+simulation_results_no_dp <- list()
+
+for (p in ps) {
+  cat("\nRunning simulations without DP for p =", p, "\n")
+  
+  wald_covered <- 0
+  wilson_covered <- 0
+  wald_out_of_bounds <- 0  
+  wilson_out_of_bounds <- 0  
+  wald_lengths <- numeric(num_simulations)
+  wilson_lengths <- numeric(num_simulations)
+  
+  for (i in 1:num_simulations) {
+    p_hat <- rbinom(1, size = n, prob = p) / n
+    simulation_p_hat[[paste0("p_", p, "_sim_", i)]] <- p_hat
+    wald_ci <- wald_confidence_interval_no_dp(p_hat, n, alpha)
+    wald_lengths[i] <- wald_ci[3]
+    if (wald_ci[1] <= p && p <= wald_ci[2]) {
+      wald_covered <- wald_covered + 1
+    }
+    
+    if (wald_ci[1] < 0 || wald_ci[2] > 1) {
+      wald_out_of_bounds <- wald_out_of_bounds + 1
+    }
+    
+    wilson_ci <- wilson_confidence_interval_no_dp(p_hat, n, alpha)
+    wilson_lengths[i] <- wilson_ci[3]
+    if (wilson_ci[1] <= p && p <= wilson_ci[2]) {
+      wilson_covered <- wilson_covered + 1
+    }
+    
+    if (wilson_ci[1] < 0 || wilson_ci[2] > 1) {
+      wilson_out_of_bounds <- wilson_out_of_bounds + 1
+    }
+  }
+  
+  wald_coverage <- wald_covered / num_simulations
+  wilson_coverage <- wilson_covered / num_simulations
+  avg_wald_length <- mean(wald_lengths)
+  avg_wilson_length <- mean(wilson_lengths)
+  
+  simulation_results_no_dp[[paste0("p_", p)]] <- list(
+    wald_coverage = wald_coverage,
+    wilson_coverage = wilson_coverage,
+    avg_wald_length = avg_wald_length,
+    avg_wilson_length = avg_wilson_length,
+    wald_out_of_bounds_percentage = wald_out_of_bounds / num_simulations,
+    wilson_out_of_bounds_percentafe = wilson_out_of_bounds / num_simulations
+  )
+}
+
+cat("\nChunk 1 completed: Simulations without DP.\n")
+```
+
+```{r}
+coverage_results_no_dp <- data.frame()
+
+for (p in ps) {
+  result <- simulation_results_no_dp[[paste0("p_", p)]]
+  coverage_results_no_dp <- rbind(coverage_results_no_dp, 
+                                  data.frame(p = p,
+                                             Wald_Coverage = result$wald_coverage,
+                                             Wilson_Coverage = result$wilson_coverage,
+                                             Avg_Wald_Length = result$avg_wald_length,
+                                             Avg_Wilson_Length = result$avg_wilson_length,
+                                             Wald_Out_Of_Bounds = result$wald_out_of_bounds,
+                                             Wilson_Out_Of_Bounds = result$wilson_out_of_bounds))
+}
+
+cat("\nCoverage, Interval Lengths, and Out-of-Bounds Results for no DP:\n")
+print(coverage_results_no_dp)
+
+cat("\nExample of Wald and Wilson bounds for no DP:\n")
+
+for (p in c(0.1, 0.5)) {
+  cat("\nBounds for p =", p, ":\n")
+  
+  cat("Wald Bounds:\n")
+  for (i in 1:5) {
+    p_hat <- simulation_p_hat[[paste0("p_", p, "_sim_", i)]]
+    
+    wald_ci <- wald_confidence_interval_no_dp(p_hat, n, alpha = 0.05)
+    
+    cat("Simulation", i, " - p_hat:", p_hat, 
+        "Lower Bound:", wald_ci[1], 
+        "Upper Bound:", wald_ci[2], "\n")
+  }
+  
+  cat("Wilson Bounds:\n")
+  for (i in 1:5) {
+    p_hat <- simulation_p_hat[[paste0("p_", p, "_sim_", i)]]
+    wilson_ci <- wilson_confidence_interval_no_dp(p_hat, n, alpha = 0.05)
+    cat("Simulation", i, " - p_hat:", p_hat, 
+        "Lower Bound:", wilson_ci[1], 
+        "Upper Bound:", wilson_ci[2], "\n")
+  }
+}
+
+```
+
+
+### Wald and Wilson with Differential Privacy(DP)
+
+```{r cache=TRUE}
+library(VGAM)    # the package is needed to generate Laplace noise; rlaplace()
+set.seed(12345)  
+
+simulate_noisy_proportion <- function(p_hat, n, epsilon) {
+  laplace_noise <- rlaplace(1, location = 0, scale = 1 / (n * epsilon))  
+  p_hat_star <- p_hat + laplace_noise
+  p_hat_star <- pmax(0, pmin(1, p_hat_star)) # needed, otherwise square root can't be solved!
+  return(p_hat_star)
+}
+
+wald_confidence_interval_dp <- function(p_hat_star, n, epsilon, alpha = 0.05) {
+  z_alpha <- qnorm(1 - alpha / 2)  
+  var_p_hat_star <- (p_hat_star * (1 - p_hat_star)) / n + 2 / (n^2 * epsilon^2)
+  lower_bound <- p_hat_star - z_alpha * sqrt(var_p_hat_star)
+  upper_bound <- p_hat_star + z_alpha * sqrt(var_p_hat_star)
+  return(c(lower_bound, upper_bound, upper_bound - lower_bound))
+}
+
+wilson_confidence_interval_dp <- function(p_hat_star, n, epsilon, alpha = 0.05) {
+  z_alpha <- qnorm(1 - alpha / 2) 
+  A <- n + z_alpha^2
+  B <- -(2 * n * p_hat_star + z_alpha^2)
+  C <- n * p_hat_star^2 - (2 * z_alpha^2) / (n * epsilon^2)
+  discriminant <- B^2 - 4 * A * C
+  if (discriminant < 0) stop("Discriminant is negative, no real solutions.")
+  lower_bound <- (-B - sqrt(discriminant)) / (2 * A)
+  upper_bound <- (-B + sqrt(discriminant)) / (2 * A)
+  return(c(lower_bound, upper_bound, upper_bound - lower_bound))
+}
+
+# change parameters for the replication of this paper or for other studies
+n <- 1000 
+ps <- c(0.1, 0.2, 0.5, 0.8)  
+epsilons <- c(0.1, 0.3, 0.5, 5)  
+num_simulations <- 5000  
+alpha <- 0.05  
+
+
+simulation_results_with_dp <- list()
+stored_p_hat_star <- list()  
+
+for (epsilon in epsilons) {
+  for (p in ps) {
+    cat("\nRunning simulations with DP for Epsilon =", epsilon, ", p =", p, "\n")
+    
+    wald_covered_dp <- 0
+    wilson_covered_dp <- 0
+    wald_out_of_bounds <- 0
+    wilson_out_of_bounds <- 0
+    wald_lengths_dp <- numeric(num_simulations)
+    wilson_lengths_dp <- numeric(num_simulations)
+    wald_bounds_dp <- data.frame(Lower = numeric(num_simulations), Upper = numeric(num_simulations))
+    wilson_bounds_dp <- data.frame(Lower = numeric(num_simulations), Upper = numeric(num_simulations))
+    
+    p_hat_star_list <- numeric(num_simulations)  
+    
+    for (i in 1:num_simulations) {
+      p_hat <- simulation_p_hat[[paste0("p_", p, "_sim_", i)]]
+      
+      p_hat_star <- simulate_noisy_proportion(p_hat, n, epsilon)
+      p_hat_star_list[i] <- p_hat_star
+      
+      wald_ci_dp <- wald_confidence_interval_dp(p_hat_star, n, epsilon, alpha)
+      wald_lengths_dp[i] <- wald_ci_dp[3]
+      wald_bounds_dp$Lower[i] <- wald_ci_dp[1]
+      wald_bounds_dp$Upper[i] <- wald_ci_dp[2]
+      if (wald_ci_dp[1] <= p && p <= wald_ci_dp[2]) {
+        wald_covered_dp <- wald_covered_dp + 1
+      }
+      if (wald_ci_dp[1] < 0 || wald_ci_dp[2] > 1) {
+        wald_out_of_bounds <- wald_out_of_bounds + 1
+      }
+      
+      wilson_ci_dp <- wilson_confidence_interval_dp(p_hat_star, n, epsilon, alpha)
+      wilson_lengths_dp[i] <- wilson_ci_dp[3]
+      wilson_bounds_dp$Lower[i] <- wilson_ci_dp[1]
+      wilson_bounds_dp$Upper[i] <- wilson_ci_dp[2]
+      if (wilson_ci_dp[1] <= p && p <= wilson_ci_dp[2]) {
+        wilson_covered_dp <- wilson_covered_dp + 1
+      }
+      if (wilson_ci_dp[1] < 0 || wilson_ci_dp[2] > 1) {
+        wilson_out_of_bounds <- wilson_out_of_bounds + 1
+      }
+    }
+    
+    stored_p_hat_star[[paste0("Epsilon_", epsilon, "_p_", p)]] <- p_hat_star_list
+    
+    wald_coverage_dp <- wald_covered_dp / num_simulations
+    wilson_coverage_dp <- wilson_covered_dp / num_simulations
+    avg_wald_length_dp <- mean(wald_lengths_dp)
+    avg_wilson_length_dp <- mean(wilson_lengths_dp)
+    
+    simulation_results_with_dp[[paste0("Epsilon_", epsilon, "_p_", p)]] <- list(
+      wald_coverage_dp = wald_coverage_dp,
+      wilson_coverage_dp = wilson_coverage_dp,
+      avg_wald_length_dp = avg_wald_length_dp,
+      avg_wilson_length_dp = avg_wilson_length_dp,
+      wald_bounds = wald_bounds_dp,
+      wilson_bounds = wilson_bounds_dp,
+      wald_out_of_bounds = wald_out_of_bounds / num_simulations,
+      wilson_out_of_bounds = wilson_out_of_bounds / num_simulations
+    )
+  }
+}
+
+cat("\nChunk 2 completed: Simulations with DP.\n")
+```
+
+```{r}
+coverage_results_dp <- data.frame()
+
+for (epsilon in epsilons) {
+  for (p in ps) {
+    result <- simulation_results_with_dp[[paste0("Epsilon_", epsilon, "_p_", p)]]
+    coverage_results_dp <- rbind(coverage_results_dp, 
+                                 data.frame(Epsilon = epsilon, 
+                                            p = p,
+                                            Wald_Coverage = result$wald_coverage_dp,
+                                            Wilson_Coverage = result$wilson_coverage_dp,
+                                            Avg_Wald_Length = result$avg_wald_length_dp,
+                                            Avg_Wilson_Length = result$avg_wilson_length_dp,
+                                            Wald_Out_Of_Bounds = result$wald_out_of_bounds,
+                                            Wilson_Out_Of_Bounds = result$wilson_out_of_bounds))
+  }
+}
+
+cat("\nCoverage, Interval Length, and Out-of-Bounds Results for DP:\n")
+print(coverage_results_dp)
+
+cat("\nExample of Wald and Wilson bounds for DP:\n")
+
+for (epsilon in c(0.1, 0.5)) {
+  for (p in c(0.1, 0.5)) {
+    result <- simulation_results_with_dp[[paste0("Epsilon_", epsilon, "_p_", p)]]
+    
+    cat("\nBounds for Epsilon =", epsilon, ", p =", p, ":\n")
+    
+    cat("Wald Bounds:\n")
+    print(head(result$wald_bounds))
+    
+    cat("Wilson Bounds:\n")
+    print(head(result$wilson_bounds))
+    
+    cat("Wald out of Bounds:\n")
+    print(head(result$wald_out_of_bounds))
+    
+    cat("Wilson out of Bounds:\n")
+    print(head(result$wilson_out_of_bounds))
+  }
+}
+```
+
+### Bayesian Credible Interval(Flat Prior (Uniform))
+
+
+```{r cache=TRUE}
+sample_phat_from_grid <- function(phat_star, n, epsilon) {
+  b <- 1 / (n * epsilon)
+  grid <- seq(0, 1, by = 1/n)  
+  
+  likelihoods <- exp(-abs(phat_star - grid) / b)
+  
+  likelihoods <- likelihoods / sum(likelihoods)
+  
+  sampled_phat <- sample(grid, size = 1, prob = likelihoods)
+  
+  return(sampled_phat)
+}
+
+gibbs_sampling_grid <- function(phat_star, n, epsilon, iterations = 5000) {
+  p_samples <- numeric(iterations)
+  p_samples[1] <- 0.5
+  for (i in 2:iterations) {
+    p <- p_samples[i - 1]
+    phat <- sample_phat_from_grid(phat_star, n, epsilon)
+    alpha <- phat * n + 1
+    beta <- (1 - phat) * n + 1
+    if (alpha <= 0 || beta <= 0) {
+      p_samples[i] <- p_samples[i - 1]
+    } else {
+      p_samples[i] <- rbeta(1, alpha, beta) 
+    }
+  }
+  
+  return(p_samples)
+}
+
+credible_interval <- function(posterior_samples, alpha = 0.05) {
+  posterior_samples <- posterior_samples[!is.na(posterior_samples)]
+  lower_bound <- quantile(posterior_samples, probs = alpha / 2)
+  upper_bound <- quantile(posterior_samples, probs = 1 - alpha / 2)
+  return(c(lower_bound, upper_bound))
+}
+
+# change parameters for the replication of this paper or for other studies
+n <- 1000 
+ps <- c(0.1, 0.2, 0.5, 0.8)  
+epsilons <- c(0.1, 0.3, 0.5, 5)  
+num_simulations <- 5000  
+alpha <- 0.05 
+
+bayesian_simulation_results <- list()
+
+set.seed(12345)
+
+for (p_idx in 1:length(ps)) {
+  p_true <- ps[p_idx]
+  
+  for (eps_idx in 1:length(epsilons)) {
+    epsilon <- epsilons[eps_idx]
+    cat("\nProcessing: Epsilon =", epsilon, "and p =", p_true, "\n")
+    count_in_interval <- 0
+    credible_intervals <- matrix(NA, nrow = num_simulations, ncol = 2)
+    for (sim in 1:num_simulations) {
+      phat <- sum(rbinom(n, 1, p_true)) / n  
+      laplace_noise <- rlaplace(1, location = 0, scale = 1 / (n * epsilon))
+      phat_star <- phat + laplace_noise 
+      posterior_samples <- gibbs_sampling_grid(phat_star, n, epsilon, iterations = 5000)
+      ci <- credible_interval(posterior_samples, alpha = 0.05)
+      credible_intervals[sim, ] <- ci
+      if (p_true >= ci[1] && p_true <= ci[2]) {
+        count_in_interval <- count_in_interval + 1
+      }
+    }
+    
+    bayesian_simulation_results[[paste0("Epsilon_", epsilon, "_p_", p_true)]] <- list(
+      bayesian_coverage = count_in_interval / num_simulations,
+      credible_intervals = credible_intervals
+    )
+    
+    cat("Completed: Epsilon =", epsilon, "and p =", p_true, "\n")
+  }
+}
+```
+
+```{r}
+bayesian_coverage_results <- data.frame()
+
+for (epsilon in epsilons) {
+  for (p in ps) {
+    result <- bayesian_simulation_results[[paste0("Epsilon_", epsilon, "_p_", p)]]
+    bayesian_coverage <- result$bayesian_coverage
+    lower_bound <- result$credible_intervals[1, 1]  
+    upper_bound <- result$credible_intervals[1, 2]  
+    avg_length <- mean(result$credible_intervals[, 2] - result$credible_intervals[, 1])  
+    bayesian_coverage_results <- rbind(bayesian_coverage_results, 
+                                       data.frame(Epsilon = epsilon, 
+                                                  p = p, 
+                                                  Bayesian_Coverage = bayesian_coverage, 
+                                                  Lower_Bound = lower_bound, 
+                                                  Upper_Bound = upper_bound,
+                                                  Avg_Length = avg_length))
+  }
+}
+
+cat("\nBayesian Coverage, Interval Bounds, and Average Length Results:\n")
+print(bayesian_coverage_results)
+
+cat("\nExample of Detailed Results for Selected Epsilon and p:\n")
+
+for (epsilon in c(0.1, 0.5)) {
+  for (p in c(0.1, 0.5)) {
+    result <- bayesian_simulation_results[[paste0("Epsilon_", epsilon, "_p_", p)]]
+    
+    avg_length <- mean(result$credible_intervals[, 2] - result$credible_intervals[, 1])
+    
+    cat("\nEpsilon =", epsilon, ", p =", p, ":\n")
+    cat("Bayesian Coverage:", result$bayesian_coverage, "\n")
+    cat("First Credible Interval: [", result$credible_intervals[1, 1], ", ", result$credible_intervals[1, 2], "]\n")
+    cat("Average Length of Credible Intervals:", avg_length, "\n")
+  }
+}
+```
+
+### Bayesian Credible Interval(Jeffreys Prior)
+
+```{r cache=TRUE}
+library(VGAM)   
+library(ggplot2) 
+sample_phat_from_grid <- function(phat_star, n, epsilon) {
+  b <- 1 / (n * epsilon)
+  grid <- seq(0, 1, by = 1/n) 
+  
+  likelihoods <- exp(-abs(phat_star - grid) / b)
+  likelihoods <- likelihoods / sum(likelihoods)
+  sampled_phat <- sample(grid, size = 1, prob = likelihoods)
+  
+  return(sampled_phat)
+}
+
+gibbs_sampling_grid <- function(phat_star, n, epsilon, iterations = 5000) {
+  p_samples <- numeric(iterations)
+  p_samples[1] <- 0.5
+  for (i in 2:iterations) {
+    p <- p_samples[i - 1]
+    phat <- sample_phat_from_grid(phat_star, n, epsilon)
+    alpha <- phat * n + 0.5  # Jeffreys Prior: Beta(1/2, 1/2)
+    beta <- (1 - phat) * n + 0.5
+    
+    if (alpha <= 0 || beta <= 0) {
+      p_samples[i] <- p_samples[i - 1]
+    } else {
+      p_samples[i] <- rbeta(1, alpha, beta) 
+    }
+  }
+  
+  return(p_samples)
+}
+
+credible_interval <- function(posterior_samples, alpha = 0.05) {
+  posterior_samples <- posterior_samples[!is.na(posterior_samples)]  
+  lower_bound <- quantile(posterior_samples, probs = alpha / 2)
+  upper_bound <- quantile(posterior_samples, probs = 1 - alpha / 2)
+  return(c(lower_bound, upper_bound))
+}
+
+
+# change parameters for the replication of this paper or for other studies
+n <- 1000  
+ps <- c(0.1, 0.2, 0.5, 0.8)  
+epsilons <- c(0.1, 0.3, 0.5, 5)  
+num_simulations <- 5000  
+alpha <- 0.05 
+
+bayesian_simulation_results <- list()
+set.seed(12345)
+for (p_idx in 1:length(ps)) {
+  p_true <- ps[p_idx]
+  
+  for (eps_idx in 1:length(epsilons)) {
+    epsilon <- epsilons[eps_idx]
+    
+    cat("\nProcessing: Epsilon =", epsilon, "and p =", p_true, "\n")
+    count_in_interval <- 0
+    credible_intervals <- matrix(NA, nrow = num_simulations, ncol = 2)
+    for (sim in 1:num_simulations) {
+      phat <- sum(rbinom(n, 1, p_true)) / n  
+      laplace_noise <- rlaplace(1, location = 0, scale = 1 / (n * epsilon))
+      phat_star <- phat + laplace_noise
+      posterior_samples <- gibbs_sampling_grid(phat_star, n, epsilon, iterations = 5000)
+      ci <- credible_interval(posterior_samples, alpha = 0.05)
+      credible_intervals[sim, ] <- ci
+      if (p_true >= ci[1] && p_true <= ci[2]) {
+        count_in_interval <- count_in_interval + 1
+      }
+    }
+    bayesian_simulation_results[[paste0("Epsilon_", epsilon, "_p_", p_true)]] <- list(
+      bayesian_coverage = count_in_interval / num_simulations,
+      credible_intervals = credible_intervals
+    )
+    cat("Completed: Epsilon =", epsilon, "and p =", p_true, "\n")
+  }
+}
+
+bayesian_coverage_results <- data.frame()
+
+for (epsilon in epsilons) {
+  for (p in ps) {
+    result <- bayesian_simulation_results[[paste0("Epsilon_", epsilon, "_p_", p)]]
+    bayesian_coverage <- result$bayesian_coverage
+    lower_bound <- result$credible_intervals[1, 1]  
+    upper_bound <- result$credible_intervals[1, 2]  
+    avg_length <- mean(result$credible_intervals[, 2] - result$credible_intervals[, 1]) 
+    bayesian_coverage_results <- rbind(bayesian_coverage_results, 
+                                       data.frame(Epsilon = epsilon, 
+                                                  p = p, 
+                                                  Bayesian_Coverage = bayesian_coverage, 
+                                                  Lower_Bound = lower_bound, 
+                                                  Upper_Bound = upper_bound,
+                                                  Avg_Length = avg_length))
+  }
+}
+```
+
+```{r}
+cat("\nBayesian Coverage, Interval Bounds, and Average Length Results:\n")
+print(bayesian_coverage_results)
+cat("\nExample of Detailed Results for Selected Epsilon and p:\n")
+for (epsilon in c(0.1, 0.5)) {
+  for (p in c(0.1, 0.5)) {
+    result <- bayesian_simulation_results[[paste0("Epsilon_", epsilon, "_p_", p)]]
+    avg_length <- mean(result$credible_intervals[, 2] - result$credible_intervals[, 1])
+    cat("\nEpsilon =", epsilon, ", p =", p, ":\n")
+    cat("Bayesian Coverage:", result$bayesian_coverage, "\n")
+    cat("First Credible Interval: [", result$credible_intervals[1, 1], ", ", result$credible_intervals[1, 2], "]\n")
+    cat("Average Length of Credible Intervals:", avg_length, "\n")
+  }
+}
+```
+
+### Two-Step
+
+```{r cache=TRUE}
+set.seed(12345)
+# change parameters for the replication of this paper or for other studies
+n               <- 1000                
+ps              <- c(0.1, 0.2, 0.5, 0.8)  
+epsilons        <- c(0.1, 0.3, 0.5, 5)   
+num_simulations <- 5000
+alpha           <- 0.05               
+
+dlaplace <- function(x, mu=0, b=1) {
+  (1/(2*b)) * exp(-abs(x - mu)/b)
+}
+
+discretePHatDraws <- function(pHatStar, n, eps, N) {
+  b <- 1/(n * eps)
+  kVals <- 0:n
+  pHatVals <- kVals / n
+  
+  unnorm <- sapply(pHatVals, function(pH) {
+    dlaplace(pHatStar, mu=pH, b=b) 
+  })
+  
+  wSum <- sum(unnorm)
+  pmf  <- unnorm / wSum
+  
+  draw_k <- sample(kVals, size=N, replace=TRUE, prob=pmf)
+  draw_pHat <- draw_k / n
+  draw_pHat
+}
+
+
+wilsonCI <- function(X, n, alpha=0.05) {
+  z <- qnorm(1 - alpha/2)
+  pHat <- X / n
+  center <- (pHat + z^2/(2*n)) / (1 + z^2/n)
+  halfWidth <- (z / (1 + z^2/n)) * sqrt(
+    pHat*(1 - pHat)/n + z^2/(4*n^2)
+  )
+  lower <- center - halfWidth
+  upper <- center + halfWidth
+  c(lower, upper)
+}
+
+
+twoStepIntervalForP <- function(pHatStar, n, eps, alpha=0.05, N) {
+  pHat_draws <- discretePHatDraws(pHatStar, n, eps, N)
+  
+  lower_vec <- numeric(N)
+  upper_vec <- numeric(N)
+  
+  for (i in seq_len(N)) {
+    X_i <- round(n * pHat_draws[i])
+    ci_i <- wilsonCI(X_i, n, alpha=alpha)
+    lower_vec[i] <- ci_i[1]
+    upper_vec[i] <- ci_i[2]
+  }
+  
+  final_lower <- quantile(lower_vec, alpha/2)
+  final_upper <- quantile(upper_vec, 1 - alpha/2)
+  c(final_lower, final_upper)
+}
+
+
+results <- data.frame(
+  epsilon    = numeric(0),
+  p          = numeric(0),
+  coverage   = numeric(0),
+  avg_length = numeric(0),
+  avg_lower  = numeric(0),
+  avg_upper  = numeric(0)
+)
+
+for (eps in epsilons) {
+  for (p.true in ps)  {
+    
+    covered_count <- 0
+    length_sum    <- 0
+    lower_sum     <- 0
+    upper_sum     <- 0
+    
+    for (sim in seq_len(num_simulations)) {
+      X       <- rbinom(1, size=n, prob=p.true)
+      pHat    <- X / n
+      
+      b       <- 1 / (n * eps)
+      noise   <- (rexp(1, 1/b) - rexp(1, 1/b))
+      pHatStar<- pHat + noise
+      
+      interval <- twoStepIntervalForP(
+        pHatStar = pHatStar,
+        n        = n,
+        eps      = eps,
+        alpha    = alpha,
+        N        = 5000
+      )
+      
+      if (p.true >= interval[1] && p.true <= interval[2]) {
+        covered_count <- covered_count + 1
+      }
+      
+      length_sum <- length_sum + (interval[2] - interval[1])
+      lower_sum  <- lower_sum + interval[1]
+      upper_sum  <- upper_sum + interval[2]
+    }
+    
+    coverage  <- covered_count / num_simulations
+    avg_len   <- length_sum / num_simulations
+    avg_lower <- lower_sum / num_simulations
+    avg_upper <- upper_sum / num_simulations
+    
+    results <- rbind(
+      results,
+      data.frame(epsilon=eps,
+                 p=p.true,
+                 coverage=coverage,
+                 avg_length=avg_len,
+                 avg_lower=avg_lower,
+                 avg_upper=avg_upper)
+    )
+  }
+}
+
+print(results)
+```
+
+### Exact Interval
+
+```{r cache=TRUE}
+library(VGAM)
+
+# change parameters for the replication of this paper or for other studies
+set.seed(12345)
+n <- 1000                               
+epsilons <- c(0.1, 0.3, 0.5, 5)        
+ps <- c(0.1, 0.2, 0.5, 0.8)             
+alpha <- 0.05                           
+num_simulations <- 5000             
+n_cover_sims <- 5000                  
+
+rlaplace <- function(n, location = 0, scale = 1) {
+  u <- runif(n, min = -0.5, max = 0.5)
+  location - scale * sign(u) * log(1 - 2 * abs(u))
+}
+
+coverage_results <- data.frame()
+
+for (epsilon in epsilons) {
+  for (p_true in ps) {
+    cat("Processing Epsilon =", epsilon, ", p_true =", p_true, "\n")
+    
+    lambda <- 1 / (n * epsilon)
+    
+    upper_tail_prob <- function(p, p_hat_star_obs) {
+      p <- min(max(p, 0), 1)  #helper for unitroot() to find the correct regiion [0,1]
+      X_sim <- rbinom(num_simulations, n, p)
+      p_hat_sim <- X_sim / n
+      eta_sim <- rlaplace(num_simulations, 0, lambda)
+      p_hat_star_sim <- p_hat_sim + eta_sim
+      mean(p_hat_star_sim >= p_hat_star_obs, na.rm = TRUE)
+    }
+    
+    lower_tail_prob <- function(p, p_hat_star_obs) {
+      p <- min(max(p, 0), 1)
+      X_sim <- rbinom(num_simulations, n, p)
+      p_hat_sim <- X_sim / n
+      eta_sim <- rlaplace(num_simulations, 0, lambda)
+      p_hat_star_sim <- p_hat_sim + eta_sim
+      mean(p_hat_star_sim <= p_hat_star_obs, na.rm = TRUE)
+    }
+    
+    cover_count <- 0
+    interval_lengths <- numeric(n_cover_sims)
+    
+    for (k in 1:n_cover_sims) {
+      X_obs <- rbinom(1, n, p_true)
+      p_hat_obs <- X_obs / n
+      eta <- rlaplace(1, 0, lambda)
+      p_hat_star_obs <- p_hat_obs + eta
+      
+      p_L <- tryCatch({
+        uniroot(function(p) upper_tail_prob(p, p_hat_star_obs) - alpha/2,
+                lower = 0, upper = p_hat_star_obs, tol = 1e-4)$root
+      }, error = function(e) 0)
+      
+      p_U <- tryCatch({
+        uniroot(function(p) lower_tail_prob(p, p_hat_star_obs) - alpha/2,
+                lower = p_hat_star_obs, upper = 1, tol = 1e-4)$root
+      }, error = function(e) 1)
+      
+      if (p_true >= p_L && p_true <= p_U) {
+        cover_count <- cover_count + 1
+      }
+      
+      interval_lengths[k] <- p_U - p_L
+    }
+    
+    coverage_est <- cover_count / n_cover_sims
+    avg_length <- mean(interval_lengths)
+    
+    cat("Coverage =", round(coverage_est, 3),
+        "Avg interval length =", round(avg_length, 3), "\n\n")
+    
+    coverage_results <- rbind(coverage_results,
+                              data.frame(epsilon = epsilon,
+                                         p_true = p_true,
+                                         coverage = coverage_est,
+                                         avg_length = avg_length))
+  }
+}
+
+print(coverage_results)
+```
+
+
+
+### Plots n = 100
+
+#### Data n =100, make sure n=100 in all above code, the result is extracted from setting n=100 above.
+```{r}
+df <- data.frame(
+  epsilon = rep(c(0.1, 0.3, 0.5, 5.0), each = 4 * 4),
+  p = rep(rep(c(0.1, 0.2, 0.5, 0.8), each = 4), times = 4),
+  method = rep(c("Bayes-U", "Bayes-J", "2-Step", "Exact"), times = 16),
+  coverage = c(
+    # ε = 0.1
+    96.0, 96.1, 97.8, 97.6,
+    97.2, 96.9, 98.7, 97.5,
+    95.4, 95.6, 98.3, 96.0,
+    97.5, 96.9, 98.8, 97.3,
+    # ε = 0.3
+    97.0, 97.2, 99.2, 97.2,
+    95.3, 94.9, 99.2, 95.3,
+    95.3, 95.4, 99.3, 95.1,
+    95.0, 95.1, 99.0, 95.4,
+    # ε = 0.5
+    95.8, 95.3, 99.4, 95.8,
+    95.2, 94.9, 99.0, 95.6,
+    95.0, 94.9, 99.1, 94.9,
+    94.4, 94.6, 99.2, 95.5,
+    # ε = 5.0
+    94.2, 95.1, 94.5, 95.3,
+    94.2, 95.2, 94.7, 95.0,
+    94.6, 94.7, 94.3, 95.0,
+    94.9, 95.4, 94.2, 95.2
+  ),
+  length = c(
+    # ε = 0.1
+    0.434, 0.438, 0.530, 0.562,
+    0.482, 0.487, 0.585, 0.550,
+    0.564, 0.570, 0.683, 0.606,
+    0.481, 0.487, 0.587, 0.548,
+    # ε = 0.3
+    0.201, 0.202, 0.278, 0.238,
+    0.238, 0.239, 0.333, 0.243,
+    0.265, 0.267, 0.378, 0.268,
+    0.238, 0.240, 0.333, 0.245,
+    # ε = 0.5
+    0.158, 0.156, 0.222, 0.168,
+    0.189, 0.189, 0.265, 0.190,
+    0.220, 0.222, 0.304, 0.222,
+    0.189, 0.190, 0.265, 0.190,
+    # ε = 5.0
+    0.118, 0.116, 0.123, 0.117,
+    0.155, 0.155, 0.159, 0.155,
+    0.192, 0.193, 0.196, 0.194,
+    0.155, 0.155, 0.159, 0.155
+  )
+)
+
+waldwilson_n_100 <- data.frame(
+  epsilon = rep(c(0.1, 0.3, 0.5, 5.0), each = 4 * 2),
+  p = rep(rep(c(0.1, 0.2, 0.5, 0.8), each = 2), times = 4),
+  method = rep(c("Plug-in Wald", "Plug-in Wilson"), times = 16),
+  coverage = c(
+    # ε = 0.1
+    95.9, 95.5,
+    94.8, 94.6,
+    93.5, 93.9,
+    97.3, 97.2,
+    # ε = 0.3
+    93.7, 97.2,
+    93.9, 94.4,
+    94.4, 94.8,
+    93.8, 94.6,
+    # ε = 0.5
+    93.5, 95.0,
+    94.1, 94.5,
+    94.3, 94.6,
+    94.3, 95.2,
+    # ε = 5.0
+    92.9, 94.7,
+    94.0, 94.8,
+    94.4, 94.7,
+    93.5, 94.7
+  ),
+  length = c(
+    # ε = 0.1
+    0.567, 0.557,
+    0.574, 0.564,
+    0.585, 0.574,
+    0.574, 0.564,
+    # ε = 0.3
+    0.218, 0.216,
+    0.241, 0.237,
+    0.268, 0.263,
+    0.241, 0.237,
+    # ε = 0.5
+    0.160, 0.160,
+    0.191, 0.189,
+    0.224, 0.220,
+    0.191, 0.189,
+    # ε = 5.0
+    0.116, 0.118,
+    0.156, 0.155,
+    0.195, 0.192,
+    0.156, 0.155
+  )
+)
+
+df_full_n_100 <- rbind(df, waldwilson_n_100)
+```
+
+#### Final plot for n=100
+```{r}
+library(ggplot2)
+library(cowplot)
+
+method_colors <- c(
+  "Plug-in Wald"   = "#D55E00",
+  "Plug-in Wilson" = "#E69F00",
+  "Bayes-U"        = "#0072B2",
+  "Bayes-J"        = "#56B4E9",
+  "2-Step"         = "#CC79A7",
+  "Exact"          = "#009E73"
+)
+
+df_full_n_100$method <- factor(
+  df_full_n_100$method,
+  levels = c("2-Step", "Exact", "Bayes-U", "Bayes-J", "Plug-in Wald", "Plug-in Wilson")
+)
+
+add_vertical_lines <- function(plot) {
+  plot + geom_vline(xintercept = 0.5, color = NA) +  
+    theme(
+      panel.border = element_blank(),
+      axis.line.x = element_line(color = "black", linewidth = 0.28)
+    ) +
+    theme(
+      panel.spacing.x = unit(1.5, "lines"),
+      panel.grid = element_blank()
+    ) +
+    geom_segment(
+      data = data.frame(x = Inf, y = -Inf),
+      aes(x = -Inf, xend = -Inf, y = -Inf, yend = Inf),
+      inherit.aes = FALSE,
+      color = "black",
+      linewidth = 0.6
+    )
+}
+
+plot_coverage_n_100 <- ggplot(df_full_n_100, aes(
+  x = factor(p),
+  y = coverage,
+  color = method,
+  shape = method
+)) +
+  geom_point(size = 2) +
+  facet_wrap(~epsilon, nrow = 1, labeller = label_bquote(epsilon == .(epsilon))) +
+  scale_color_manual(values = method_colors) +
+  scale_shape_manual(values = c(15, 16, 17, 18, 8, 3)) +
+  labs(x = NULL, y = "Coverage (%)", color = "Method", shape = "Method") +
+  theme_minimal() +
+  theme(
+    legend.position = "none",
+    strip.text = element_text(size = 11, face = "bold"),
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    axis.title.x = element_blank(),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 11),
+    panel.grid = element_blank(),
+    panel.spacing.x = unit(1.5, "lines")
+  )
+
+plot_coverage_n_100 <- add_vertical_lines(plot_coverage_n_100)
+
+plot_length_n_100 <- ggplot(df_full_n_100, aes(
+  x = factor(p),
+  y = length,
+  color = method,
+  shape = method
+)) +
+  geom_point(size = 2) +
+  facet_wrap(~epsilon, nrow = 1, labeller = label_bquote("")) +
+  scale_color_manual(values = method_colors) +
+  scale_shape_manual(values = c(15, 16, 17, 18, 8, 3)) +
+  labs(x = "True Proportion (p)", y = "Interval Length", color = "Method", shape = "Method") +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",
+    legend.title = element_text(face = "bold"),
+    legend.text = element_text(size = 10),
+    strip.text = element_text(size = 11, face = "bold"),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 11),
+    panel.grid = element_blank(),
+    panel.spacing.x = unit(1.5, "lines")
+  )
+
+plot_length_n_100 <- add_vertical_lines(plot_length_n_100)
+
+final_plot_n_100 <- plot_grid(
+  plot_coverage_n_100,
+  plot_length_n_100,
+  ncol = 1,
+  align = "v",
+  axis = "lr",
+  rel_heights = c(1, 1)
+)
+
+final_plot_n_100
+ggsave("Coverage_Length_Combined_n_100.png", final_plot_n_100, width = 12, height = 7, dpi = 600)
+```
+
+### Plots n = 1000
+
+#### Data n = 1000, extracted from the result above
+```{r}
+df_n_1000 <- data.frame(
+  epsilon = rep(c(0.1, 0.3, 0.5, 5.0), each = 4 * 4),
+  p = rep(rep(c(0.1, 0.2, 0.5, 0.8), each = 4), times = 4),
+  method = rep(c("Bayes-U", "Bayes-J", "2-Step", "Exact"), times = 16),
+  coverage = c(
+    # ε = 0.1
+    95.4, 95.2, 98.8, 94.8,
+    95.1, 94.9, 99.3, 95.6,
+    94.7, 94.9, 99.3, 95.3,
+    94.9, 94.6, 98.9, 95.1,
+    # ε = 0.3
+    95.2, 94.5, 99.2, 94.9,
+    94.9, 95.1, 98.9, 94.2,
+    94.9, 94.9, 98.4, 95.0,
+    95.1, 95.2, 98.7, 95.1,
+    # ε = 0.5
+    94.8, 95.1, 98.6, 94.5,
+    95.3, 95.2, 97.9, 95.1,
+    95.4, 95.4, 97.6, 94.6,
+    94.8, 95.4, 98.0, 95.6,
+    # ε = 5.0
+    95.0, 95.0, 94.9, 94.4,
+    95.0, 95.0, 95.0, 95.1,
+    95.3, 95.3, 95.0, 95.2,
+    95.2, 95.2, 94.6, 95.5
+  ),
+  length = c(
+    # ε = 0.1
+    0.07, 0.07, 0.10, 0.07,
+    0.08, 0.08, 0.11, 0.08,
+    0.08, 0.08, 0.12, 0.08,
+    0.08, 0.08, 0.11, 0.08,
+    # ε = 0.3
+    0.04, 0.04, 0.06, 0.04,
+    0.05, 0.05, 0.07, 0.05,
+    0.06, 0.06, 0.08, 0.06,
+    0.05, 0.05, 0.07, 0.05,
+    # ε = 0.5
+    0.04, 0.04, 0.05, 0.04,
+    0.05, 0.05, 0.05, 0.05,
+    0.06, 0.06, 0.07, 0.06,
+    0.05, 0.05, 0.06, 0.05,
+    # ε = 5.0
+    0.04, 0.04, 0.04, 0.04,
+    0.05, 0.05, 0.05, 0.05,
+    0.06, 0.06, 0.06, 0.06,
+    0.05, 0.05, 0.05, 0.05
+  )
+)
+
+waldwilson_n_1000 <- data.frame(
+  epsilon = rep(c(0.1, 0.3, 0.5, 5.0), each = 4 * 2),
+  p = rep(rep(c(0.1, 0.2, 0.5, 0.8), each = 2), times = 4),
+  method = rep(c("Plug-in Wald", "Plug-in Wilson"), times = 16),
+
+  coverage = c(
+    # ε = 0.1
+    94.72, 94.48,
+    94.80, 94.76,
+    95.02, 95.06,
+    94.68, 94.70,
+    # ε = 0.3
+    95.08, 95.08,
+    94.62, 94.60,
+    94.98, 95.02,
+    95.38, 95.30,
+    # ε = 0.5
+    95.06, 95.08,
+    94.62, 94.52,
+    94.92, 94.94,
+    95.16, 95.20,
+    # ε = 5.0
+    95.08, 95.06,
+    94.76, 94.58,
+    95.00, 95.04,
+    95.40, 95.28
+  ),
+
+  length = c(
+    # ε = 0.1
+    0.067, 0.067,
+    0.074, 0.074,
+    0.083, 0.083,
+    0.074, 0.074,
+    # ε = 0.3
+    0.041, 0.042,
+    0.053, 0.053,
+    0.065, 0.065,
+    0.053, 0.053,
+    # ε = 0.5
+    0.039, 0.039,
+    0.051, 0.051,
+    0.063, 0.063,
+    0.051, 0.051,
+    # ε = 5.0
+    0.037, 0.037,
+    0.050, 0.050,
+    0.062, 0.062,
+    0.050, 0.050
+  )
+)
+
+
+df_full_n_1000 <- rbind(df_n_1000, waldwilson_n_1000)
+```
+
+#### Final plot for n=1000
+```{r}
+library(ggplot2)
+library(cowplot)
+
+method_colors <- c(
+  "Plug-in Wald"   = "#D55E00",
+  "Plug-in Wilson" = "#E69F00",
+  "Bayes-U"        = "#0072B2",
+  "Bayes-J"        = "#56B4E9",
+  "2-Step"         = "#CC79A7",
+  "Exact"          = "#009E73"
+)
+
+df_full_n_1000$method <- factor(
+  df_full_n_1000$method,
+  levels = c("2-Step", "Exact", "Bayes-U", "Bayes-J", "Plug-in Wald", "Plug-in Wilson")
+)
+
+add_vertical_lines <- function(plot) {
+  plot + geom_vline(xintercept = 0.5, color = NA) +  # just to preserve structure
+    theme(
+      panel.border = element_blank(),
+      axis.line.x = element_line(color = "black", linewidth = 0.28)
+    ) +
+    theme(
+      panel.spacing.x = unit(1.5, "lines"),
+      panel.grid = element_blank()
+    ) +
+    geom_segment(
+      data = data.frame(x = Inf, y = -Inf),
+      aes(x = -Inf, xend = -Inf, y = -Inf, yend = Inf),
+      inherit.aes = FALSE,
+      color = "black",
+      linewidth = 0.6
+    )
+}
+
+plot_coverage_n_1000 <- ggplot(df_full_n_1000, aes(
+  x = factor(p),
+  y = coverage,
+  color = method,
+  shape = method
+)) +
+  geom_point(size = 2) +
+  facet_wrap(~epsilon, nrow = 1, labeller = label_bquote(epsilon == .(epsilon))) +
+  scale_color_manual(values = method_colors) +
+  scale_shape_manual(values = c(15, 16, 17, 18, 8, 3)) +
+  labs(x = NULL, y = "Coverage (%)", color = "Method", shape = "Method") +
+  theme_minimal() +
+  theme(
+    legend.position = "none",
+    strip.text = element_text(size = 11, face = "bold"),
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    axis.title.x = element_blank(),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 11),
+    panel.grid = element_blank(),
+    panel.spacing.x = unit(1.5, "lines")
+  )
+
+plot_coverage_n_1000 <- add_vertical_lines(plot_coverage_n_1000)
+
+# --- Length plot ---
+plot_length_n_1000 <- ggplot(df_full_n_1000, aes(
+  x = factor(p),
+  y = length,
+  color = method,
+  shape = method
+)) +
+  geom_point(size = 2) +
+  facet_wrap(~epsilon, nrow = 1, labeller = label_bquote("")) +
+  scale_color_manual(values = method_colors) +
+  scale_shape_manual(values = c(15, 16, 17, 18, 8, 3)) +
+  labs(x = "True Proportion (p)", y = "Interval Length", color = "Method", shape = "Method") +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",
+    legend.title = element_text(face = "bold"),
+    legend.text = element_text(size = 10),
+    strip.text = element_text(size = 11, face = "bold"),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 11),
+    panel.grid = element_blank(),
+    panel.spacing.x = unit(1.5, "lines")
+  )
+
+plot_length_n_1000 <- add_vertical_lines(plot_length_n_1000)
+
+final_plot_n_1000 <- plot_grid(
+  plot_coverage_n_1000,
+  plot_length_n_1000,
+  ncol = 1,
+  align = "v",
+  axis = "lr",
+  rel_heights = c(1, 1)
+)
+
+final_plot_n_1000
+ggsave("Coverage_Length_Combined_n_1000.png", final_plot_n_1000, width = 12, height = 7, dpi = 600)
+```
+
+
+
+
+
+
