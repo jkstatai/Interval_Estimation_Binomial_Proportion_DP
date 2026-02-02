@@ -1,0 +1,673 @@
+---
+title: "JSTP-Interval Estimation for Binomial Proportions Under Differential Privacy"
+author: "KAO, HSUAN-CHEN(Justin)"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    latex_engine: xelatex
+  html_document:
+    df_print: paged
+geometry: margin=0.5in
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+rm(list=ls())
+```
+
+# Method: Rényi-DP: Code includes both n=100 and n=1000
+
+## We set set.seed(12345) for all code to ensure reproducibility in the paper submitted to JSTP. Furthermore, the for loop takes a long time to run; therefore, using cache = TRUE is highly recommended for the main chunk.
+
+
+## alpha = 2
+### n = 100 
+```{r, cache=TRUE}
+rdiscrete_gaussian <- function(n_samples, sigma) {
+  round(rnorm(n_samples, mean = 0, sd = sigma))
+}
+
+sample_phat_from_grid <- function(phat_star, n, sigma) {
+  grid <- seq(0, 1, by = 1 / n) 
+  
+  likelihoods <- exp(-((phat_star - grid)^2 * n^2) / (2 * sigma^2))
+  likelihoods <- likelihoods / sum(likelihoods)
+  
+  sample(grid, size = 1, prob = likelihoods)
+}
+
+gibbs_sampling_grid <- function(phat_star, n, sigma, iterations) {
+  p_samples <- numeric(iterations)
+  p_samples[1] <- 0.5
+  
+  for (i in 2:iterations) {
+    phat <- sample_phat_from_grid(phat_star, n, sigma)
+    alpha_par <- phat * n + 1
+    beta_par <- (1 - phat) * n + 1
+    
+    if (alpha_par > 0 && beta_par > 0) {
+      p_samples[i] <- rbeta(1, alpha_par, beta_par)
+    } else {
+      p_samples[i] <- p_samples[i - 1]
+    }
+  }
+  
+  return(p_samples)
+}
+
+credible_interval <- function(posterior_samples, alpha = 0.05) {
+  posterior_samples <- posterior_samples[!is.na(posterior_samples)]
+  lower_bound <- quantile(posterior_samples, probs = alpha / 2)
+  upper_bound <- quantile(posterior_samples, probs = 1 - alpha / 2)
+  c(lower_bound, upper_bound)
+}
+
+n <- 100
+ps <- c(0.1, 0.2, 0.5, 0.8)
+epsilons <- c(0.1, 0.3, 0.5, 5)
+num_simulations <- 5000
+iterations <- 5000
+alpha <- 0.05
+set.seed(12345)
+
+bayesian_simulation_results <- list()
+
+rdp_alpha <- 2  
+
+for (p_true in ps) {
+  for (epsilon in epsilons) {
+    cat("\nProcessing: Epsilon =", epsilon, "and p =", p_true, "\n")
+    
+    count_in_interval <- 0
+    credible_intervals <- matrix(NA, nrow = num_simulations, ncol = 2)
+    
+    # RDP calibration for (alpha, epsilon)-RDP with sensitivity Δ=1 on the COUNT
+    sigma <- sqrt(rdp_alpha / (2 * epsilon))
+    
+    for (sim in 1:num_simulations) {
+      k <- sum(rbinom(n, 1, p_true))
+      phat <- k / n
+      
+      k_star <- k + rdiscrete_gaussian(1, sigma)
+      k_star <- min(max(k_star, 0), n)   # keep it a valid count
+      
+      phat_star <- k_star / n
+      
+      posterior_samples <- gibbs_sampling_grid(phat_star, n, sigma, iterations)
+      ci <- credible_interval(posterior_samples, alpha)
+      credible_intervals[sim, ] <- ci
+      
+      if (p_true >= ci[1] && p_true <= ci[2]) {
+        count_in_interval <- count_in_interval + 1
+      }
+    }
+    
+    bayesian_simulation_results[[paste0("Epsilon_", epsilon, "_p_", p_true)]] <- list(
+      bayesian_coverage = count_in_interval / num_simulations,
+      credible_intervals = credible_intervals
+    )
+    
+    cat("Completed: Epsilon =", epsilon, "and p =", p_true, "\n")
+  }
+}
+
+bayesian_coverage_results <- data.frame()
+for (epsilon in epsilons) {
+  for (p in ps) {
+    result <- bayesian_simulation_results[[paste0("Epsilon_", epsilon, "_p_", p)]]
+    bayesian_coverage <- result$bayesian_coverage
+    avg_length <- mean(result$credible_intervals[, 2] - result$credible_intervals[, 1])
+    lower_bound <- result$credible_intervals[1, 1]
+    upper_bound <- result$credible_intervals[1, 2]
+    
+    bayesian_coverage_results <- rbind(
+      bayesian_coverage_results,
+      data.frame(Epsilon = epsilon,
+                 p = p,
+                 Bayesian_Coverage = bayesian_coverage,
+                 Lower_Bound = lower_bound,
+                 Upper_Bound = upper_bound,
+                 Avg_Length = avg_length)
+    )
+  }
+}
+
+cat("\nBayesian Coverage, Interval Bounds, and Average Length Results:\n")
+print(bayesian_coverage_results)
+cat("\nExample of Detailed Results for Selected Epsilon and p:\n")
+for (epsilon in c(0.1, 0.5)) {
+  for (p in c(0.1, 0.5)) {
+    result <- bayesian_simulation_results[[paste0("Epsilon_", epsilon, "_p_", p)]]
+    avg_length <- mean(result$credible_intervals[, 2] - result$credible_intervals[, 1])
+    cat("\nEpsilon =", epsilon, ", p =", p, ":\n")
+    cat("Bayesian Coverage:", result$bayesian_coverage, "\n")
+    cat("First Credible Interval: [", result$credible_intervals[1, 1], ", ",
+        result$credible_intervals[1, 2], "]\n")
+    cat("Average Length of Credible Intervals:", avg_length, "\n")
+  }
+}
+```
+
+### n = 1000
+```{r, cache=TRUE}
+rdiscrete_gaussian <- function(n_samples, sigma) {
+  round(rnorm(n_samples, mean = 0, sd = sigma))
+}
+
+sample_phat_from_grid <- function(phat_star, n, sigma) {
+  grid <- seq(0, 1, by = 1 / n)  
+  
+  likelihoods <- exp(-((phat_star - grid)^2 * n^2) / (2 * sigma^2))
+  likelihoods <- likelihoods / sum(likelihoods)
+  
+  sample(grid, size = 1, prob = likelihoods)
+}
+
+gibbs_sampling_grid <- function(phat_star, n, sigma, iterations) {
+  p_samples <- numeric(iterations)
+  p_samples[1] <- 0.5
+  
+  for (i in 2:iterations) {
+    phat <- sample_phat_from_grid(phat_star, n, sigma)
+    alpha_par <- phat * n + 1
+    beta_par <- (1 - phat) * n + 1
+    
+    if (alpha_par > 0 && beta_par > 0) {
+      p_samples[i] <- rbeta(1, alpha_par, beta_par)
+    } else {
+      p_samples[i] <- p_samples[i - 1]
+    }
+  }
+  
+  return(p_samples)
+}
+
+credible_interval <- function(posterior_samples, alpha = 0.05) {
+  posterior_samples <- posterior_samples[!is.na(posterior_samples)]
+  lower_bound <- quantile(posterior_samples, probs = alpha / 2)
+  upper_bound <- quantile(posterior_samples, probs = 1 - alpha / 2)
+  c(lower_bound, upper_bound)
+}
+
+n <- 1000
+ps <- c(0.1, 0.2, 0.5, 0.8)
+epsilons <- c(0.1, 0.3, 0.5, 5)
+num_simulations <- 5000
+iterations <- 5000
+alpha <- 0.05
+set.seed(12345)
+
+bayesian_simulation_results <- list()
+
+rdp_alpha <- 2  
+
+for (p_true in ps) {
+  for (epsilon in epsilons) {
+    cat("\nProcessing: Epsilon =", epsilon, "and p =", p_true, "\n")
+    
+    count_in_interval <- 0
+    credible_intervals <- matrix(NA, nrow = num_simulations, ncol = 2)
+    
+    # RDP calibration for (alpha, epsilon)-RDP with sensitivity Δ=1 on the COUNT
+    sigma <- sqrt(rdp_alpha / (2 * epsilon))
+    
+    for (sim in 1:num_simulations) {
+      k <- sum(rbinom(n, 1, p_true))
+      phat <- k / n
+      
+      k_star <- k + rdiscrete_gaussian(1, sigma)
+      k_star <- min(max(k_star, 0), n)   # keep it a valid count
+      
+      phat_star <- k_star / n
+      
+      posterior_samples <- gibbs_sampling_grid(phat_star, n, sigma, iterations)
+      ci <- credible_interval(posterior_samples, alpha)
+      credible_intervals[sim, ] <- ci
+      
+      if (p_true >= ci[1] && p_true <= ci[2]) {
+        count_in_interval <- count_in_interval + 1
+      }
+    }
+    
+    bayesian_simulation_results[[paste0("Epsilon_", epsilon, "_p_", p_true)]] <- list(
+      bayesian_coverage = count_in_interval / num_simulations,
+      credible_intervals = credible_intervals
+    )
+    
+    cat("Completed: Epsilon =", epsilon, "and p =", p_true, "\n")
+  }
+}
+
+bayesian_coverage_results <- data.frame()
+
+for (epsilon in epsilons) {
+  for (p in ps) {
+    result <- bayesian_simulation_results[[paste0("Epsilon_", epsilon, "_p_", p)]]
+    bayesian_coverage <- result$bayesian_coverage
+    avg_length <- mean(result$credible_intervals[, 2] - result$credible_intervals[, 1])
+    lower_bound <- result$credible_intervals[1, 1]
+    upper_bound <- result$credible_intervals[1, 2]
+    
+    bayesian_coverage_results <- rbind(
+      bayesian_coverage_results,
+      data.frame(Epsilon = epsilon,
+                 p = p,
+                 Bayesian_Coverage = bayesian_coverage,
+                 Lower_Bound = lower_bound,
+                 Upper_Bound = upper_bound,
+                 Avg_Length = avg_length)
+    )
+  }
+}
+
+cat("\nBayesian Coverage, Interval Bounds, and Average Length Results:\n")
+print(bayesian_coverage_results)
+
+cat("\nExample of Detailed Results for Selected Epsilon and p:\n")
+for (epsilon in c(0.1, 0.5)) {
+  for (p in c(0.1, 0.5)) {
+    result <- bayesian_simulation_results[[paste0("Epsilon_", epsilon, "_p_", p)]]
+    avg_length <- mean(result$credible_intervals[, 2] - result$credible_intervals[, 1])
+    cat("\nEpsilon =", epsilon, ", p =", p, ":\n")
+    cat("Bayesian Coverage:", result$bayesian_coverage, "\n")
+    cat("First Credible Interval: [", result$credible_intervals[1, 1], ", ",
+        result$credible_intervals[1, 2], "]\n")
+    cat("Average Length of Credible Intervals:", avg_length, "\n")
+  }
+}
+```
+
+
+## alpha = 10
+### n = 100 
+```{r, cache=TRUE}
+rdiscrete_gaussian <- function(n_samples, sigma) {
+  round(rnorm(n_samples, mean = 0, sd = sigma))
+}
+
+sample_phat_from_grid <- function(phat_star, n, sigma) {
+  grid <- seq(0, 1, by = 1 / n) 
+  
+  likelihoods <- exp(-((phat_star - grid)^2 * n^2) / (2 * sigma^2))
+  likelihoods <- likelihoods / sum(likelihoods)
+  
+  sample(grid, size = 1, prob = likelihoods)
+}
+
+gibbs_sampling_grid <- function(phat_star, n, sigma, iterations) {
+  p_samples <- numeric(iterations)
+  p_samples[1] <- 0.5
+  
+  for (i in 2:iterations) {
+    phat <- sample_phat_from_grid(phat_star, n, sigma)
+    alpha_par <- phat * n + 1
+    beta_par <- (1 - phat) * n + 1
+    
+    if (alpha_par > 0 && beta_par > 0) {
+      p_samples[i] <- rbeta(1, alpha_par, beta_par)
+    } else {
+      p_samples[i] <- p_samples[i - 1]
+    }
+  }
+  
+  return(p_samples)
+}
+
+credible_interval <- function(posterior_samples, alpha = 0.05) {
+  posterior_samples <- posterior_samples[!is.na(posterior_samples)]
+  lower_bound <- quantile(posterior_samples, probs = alpha / 2)
+  upper_bound <- quantile(posterior_samples, probs = 1 - alpha / 2)
+  c(lower_bound, upper_bound)
+}
+
+n <- 100
+ps <- c(0.1, 0.2, 0.5, 0.8)
+epsilons <- c(0.1, 0.3, 0.5, 5)
+num_simulations <- 5000
+iterations <- 5000
+alpha <- 0.05
+set.seed(12345)
+
+bayesian_simulation_results <- list()
+
+rdp_alpha <- 10 
+
+for (p_true in ps) {
+  for (epsilon in epsilons) {
+    cat("\nProcessing: Epsilon =", epsilon, "and p =", p_true, "\n")
+    
+    count_in_interval <- 0
+    credible_intervals <- matrix(NA, nrow = num_simulations, ncol = 2)
+    
+    # RDP calibration for (alpha, epsilon)-RDP with sensitivity Δ=1 on the COUNT
+    sigma <- sqrt(rdp_alpha / (2 * epsilon))
+    
+    for (sim in 1:num_simulations) {
+      k <- sum(rbinom(n, 1, p_true))
+      phat <- k / n
+      
+      k_star <- k + rdiscrete_gaussian(1, sigma)
+      k_star <- min(max(k_star, 0), n)   # keep it a valid count
+      
+      phat_star <- k_star / n
+      
+      posterior_samples <- gibbs_sampling_grid(phat_star, n, sigma, iterations)
+      ci <- credible_interval(posterior_samples, alpha)
+      credible_intervals[sim, ] <- ci
+      
+      if (p_true >= ci[1] && p_true <= ci[2]) {
+        count_in_interval <- count_in_interval + 1
+      }
+    }
+    
+    bayesian_simulation_results[[paste0("Epsilon_", epsilon, "_p_", p_true)]] <- list(
+      bayesian_coverage = count_in_interval / num_simulations,
+      credible_intervals = credible_intervals
+    )
+    
+    cat("Completed: Epsilon =", epsilon, "and p =", p_true, "\n")
+  }
+}
+
+bayesian_coverage_results <- data.frame()
+for (epsilon in epsilons) {
+  for (p in ps) {
+    result <- bayesian_simulation_results[[paste0("Epsilon_", epsilon, "_p_", p)]]
+    bayesian_coverage <- result$bayesian_coverage
+    avg_length <- mean(result$credible_intervals[, 2] - result$credible_intervals[, 1])
+    lower_bound <- result$credible_intervals[1, 1]
+    upper_bound <- result$credible_intervals[1, 2]
+    
+    bayesian_coverage_results <- rbind(
+      bayesian_coverage_results,
+      data.frame(Epsilon = epsilon,
+                 p = p,
+                 Bayesian_Coverage = bayesian_coverage,
+                 Lower_Bound = lower_bound,
+                 Upper_Bound = upper_bound,
+                 Avg_Length = avg_length)
+    )
+  }
+}
+
+cat("\nBayesian Coverage, Interval Bounds, and Average Length Results:\n")
+print(bayesian_coverage_results)
+cat("\nExample of Detailed Results for Selected Epsilon and p:\n")
+for (epsilon in c(0.1, 0.5)) {
+  for (p in c(0.1, 0.5)) {
+    result <- bayesian_simulation_results[[paste0("Epsilon_", epsilon, "_p_", p)]]
+    avg_length <- mean(result$credible_intervals[, 2] - result$credible_intervals[, 1])
+    cat("\nEpsilon =", epsilon, ", p =", p, ":\n")
+    cat("Bayesian Coverage:", result$bayesian_coverage, "\n")
+    cat("First Credible Interval: [", result$credible_intervals[1, 1], ", ",
+        result$credible_intervals[1, 2], "]\n")
+    cat("Average Length of Credible Intervals:", avg_length, "\n")
+  }
+}
+```
+
+### n = 1000
+```{r, cache=TRUE}
+rdiscrete_gaussian <- function(n_samples, sigma) {
+  round(rnorm(n_samples, mean = 0, sd = sigma))
+}
+
+sample_phat_from_grid <- function(phat_star, n, sigma) {
+  grid <- seq(0, 1, by = 1 / n)  
+  
+  likelihoods <- exp(-((phat_star - grid)^2 * n^2) / (2 * sigma^2))
+  likelihoods <- likelihoods / sum(likelihoods)
+  
+  sample(grid, size = 1, prob = likelihoods)
+}
+
+gibbs_sampling_grid <- function(phat_star, n, sigma, iterations) {
+  p_samples <- numeric(iterations)
+  p_samples[1] <- 0.5
+  
+  for (i in 2:iterations) {
+    phat <- sample_phat_from_grid(phat_star, n, sigma)
+    alpha_par <- phat * n + 1
+    beta_par <- (1 - phat) * n + 1
+    
+    if (alpha_par > 0 && beta_par > 0) {
+      p_samples[i] <- rbeta(1, alpha_par, beta_par)
+    } else {
+      p_samples[i] <- p_samples[i - 1]
+    }
+  }
+  
+  return(p_samples)
+}
+
+credible_interval <- function(posterior_samples, alpha = 0.05) {
+  posterior_samples <- posterior_samples[!is.na(posterior_samples)]
+  lower_bound <- quantile(posterior_samples, probs = alpha / 2)
+  upper_bound <- quantile(posterior_samples, probs = 1 - alpha / 2)
+  c(lower_bound, upper_bound)
+}
+
+n <- 1000
+ps <- c(0.1, 0.2, 0.5, 0.8)
+epsilons <- c(0.1, 0.3, 0.5, 5)
+num_simulations <- 5000
+iterations <- 5000
+alpha <- 0.05
+set.seed(12345)
+
+bayesian_simulation_results <- list()
+
+rdp_alpha <- 10  
+
+for (p_true in ps) {
+  for (epsilon in epsilons) {
+    cat("\nProcessing: Epsilon =", epsilon, "and p =", p_true, "\n")
+    
+    count_in_interval <- 0
+    credible_intervals <- matrix(NA, nrow = num_simulations, ncol = 2)
+    
+    # RDP calibration for (alpha, epsilon)-RDP with sensitivity Δ=1 on the COUNT
+    sigma <- sqrt(rdp_alpha / (2 * epsilon))
+    
+    for (sim in 1:num_simulations) {
+      k <- sum(rbinom(n, 1, p_true))
+      phat <- k / n
+      
+      k_star <- k + rdiscrete_gaussian(1, sigma)
+      k_star <- min(max(k_star, 0), n)   # keep it a valid count
+      
+      phat_star <- k_star / n
+      
+      posterior_samples <- gibbs_sampling_grid(phat_star, n, sigma, iterations)
+      ci <- credible_interval(posterior_samples, alpha)
+      credible_intervals[sim, ] <- ci
+      
+      if (p_true >= ci[1] && p_true <= ci[2]) {
+        count_in_interval <- count_in_interval + 1
+      }
+    }
+    
+    bayesian_simulation_results[[paste0("Epsilon_", epsilon, "_p_", p_true)]] <- list(
+      bayesian_coverage = count_in_interval / num_simulations,
+      credible_intervals = credible_intervals
+    )
+    
+    cat("Completed: Epsilon =", epsilon, "and p =", p_true, "\n")
+  }
+}
+
+bayesian_coverage_results <- data.frame()
+
+for (epsilon in epsilons) {
+  for (p in ps) {
+    result <- bayesian_simulation_results[[paste0("Epsilon_", epsilon, "_p_", p)]]
+    bayesian_coverage <- result$bayesian_coverage
+    avg_length <- mean(result$credible_intervals[, 2] - result$credible_intervals[, 1])
+    lower_bound <- result$credible_intervals[1, 1]
+    upper_bound <- result$credible_intervals[1, 2]
+    
+    bayesian_coverage_results <- rbind(
+      bayesian_coverage_results,
+      data.frame(Epsilon = epsilon,
+                 p = p,
+                 Bayesian_Coverage = bayesian_coverage,
+                 Lower_Bound = lower_bound,
+                 Upper_Bound = upper_bound,
+                 Avg_Length = avg_length)
+    )
+  }
+}
+
+cat("\nBayesian Coverage, Interval Bounds, and Average Length Results:\n")
+print(bayesian_coverage_results)
+
+cat("\nExample of Detailed Results for Selected Epsilon and p:\n")
+for (epsilon in c(0.1, 0.5)) {
+  for (p in c(0.1, 0.5)) {
+    result <- bayesian_simulation_results[[paste0("Epsilon_", epsilon, "_p_", p)]]
+    avg_length <- mean(result$credible_intervals[, 2] - result$credible_intervals[, 1])
+    cat("\nEpsilon =", epsilon, ", p =", p, ":\n")
+    cat("Bayesian Coverage:", result$bayesian_coverage, "\n")
+    cat("First Credible Interval: [", result$credible_intervals[1, 1], ", ",
+        result$credible_intervals[1, 2], "]\n")
+    cat("Average Length of Credible Intervals:", avg_length, "\n")
+  }
+}
+```
+
+
+## Plots
+
+```{r}
+library(ggplot2)
+library(cowplot)
+
+# n = 100
+df_n100 <- data.frame(
+  n = 100,
+  #epsilon = rep(c(0.1, 0.3, 0.5, 5.0), each = 4),
+  sigma2 = rep(c(10, 3.33, 2, 0.2), each = 4),
+  p = rep(c(0.1, 0.2, 0.5, 0.8), times = 4),
+  coverage = c(
+    95.78, 95.22, 94.82, 95.22,
+    94.10, 95.00, 95.34, 94.90,
+    95.24, 95.24, 95.52, 94.70,
+    94.08, 94.98, 94.62, 94.14
+  ),
+  length = c(
+    0.164, 0.195, 0.226, 0.195,
+    0.136, 0.169, 0.204, 0.169,
+    0.129, 0.164, 0.199, 0.164,
+    0.118, 0.155, 0.192, 0.155
+  )
+)
+
+# n = 1000
+df_n1000 <- data.frame(
+  n = 1000,
+  #epsilon = rep(c(0.1, 0.3, 0.5, 5.0), each = 4),
+  sigma2 = rep(c(10, 3.33, 2, 0.2), each = 4),
+  p = rep(c(0.1, 0.2, 0.5, 0.8), times = 4),
+  coverage = c(
+    94.88, 94.58, 95.58, 95.24,
+    95.26, 94.74, 95.02, 95.24,
+    95.06, 95.26, 94.62, 95.44,
+    95.06, 94.76, 94.98, 94.82
+  ),
+  length = c(
+    0.039, 0.051, 0.063, 0.051,
+    0.038, 0.050, 0.062, 0.050,
+    0.038, 0.050, 0.062, 0.050,
+    0.037, 0.050, 0.062, 0.050
+  )
+)
+
+df_all <- rbind(df_n100, df_n1000)
+df_all$n <- factor(df_all$n)
+```
+
+
+```{r}
+add_panel_lines <- function(plot) {
+  plot +
+    theme(
+      panel.border = element_blank(),
+      axis.line.x = element_line(color = "black", linewidth = 0.28),
+      panel.grid = element_blank(),
+      panel.spacing.x = unit(1.5, "lines"),
+      panel.spacing.y = unit(1.2, "lines")
+    ) +
+    geom_segment(
+      data = data.frame(x = -Inf, y = -Inf),
+      aes(x = -Inf, xend = -Inf, y = -Inf, yend = Inf),
+      inherit.aes = FALSE,
+      color = "black",
+      linewidth = 0.6
+    ) +
+    geom_segment(
+      data = data.frame(x = -Inf, y = -Inf),
+      aes(x = -Inf, xend = Inf, y = -Inf, yend = -Inf),
+      inherit.aes = FALSE,
+      color = "black",
+      linewidth = 0.6
+    )
+}
+
+plot_coverage_renyi <- ggplot(df_all, aes(x = factor(p), y = coverage, group = 1)) +
+  geom_point(color = "#0072B2", size = 2, shape =11) +
+  facet_grid(
+    rows = vars(n),
+    cols = vars(sigma2),
+    labeller = labeller(
+      n = function(x) paste0("n = ", x),
+      sigma2 = function(x) paste0("σ² = ", x)
+    )
+  ) +
+  labs(x = "True Proportion (p)", y = "Coverage (%)") +
+  theme_minimal() +
+  theme(
+    legend.position = "none",
+    strip.text = element_text(size = 11),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 11),
+    panel.grid = element_blank(),
+    panel.border = element_blank()
+  )
+
+plot_coverage_renyi <- add_panel_lines(plot_coverage_renyi)
+
+plot_length_renyi <- ggplot(df_all, aes(x = factor(p), y = length, group = 1)) +
+  geom_point(color = "#0072B2", size = 2, shape = 11) +
+  facet_grid(
+    rows = vars(n),
+    cols = vars(sigma2),
+    labeller = labeller(
+      n = function(x) paste0("n = ", x),
+      sigma2 = function(x) paste0("σ² = ", x)
+    )
+  ) +
+  labs(x = "True Proportion (p)", y = "Interval Length") +
+  scale_y_continuous(labels = function(x) sprintf("%.3f", x)) +
+  theme_minimal() +
+  theme(
+    legend.position = "none",
+    strip.text = element_text(size = 11),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 11),
+    panel.grid = element_blank(),
+    panel.border = element_blank()
+  )
+
+plot_length_renyi <- add_panel_lines(plot_length_renyi)
+
+plot_coverage_renyi
+plot_length_renyi
+
+ggsave("RenyiDP_Coverage_n100_1000.png", plot_coverage_renyi, width = 12, height = 6, dpi = 600)
+ggsave("RenyiDP_Length_n100_1000.png", plot_length_renyi, width = 12, height = 6, dpi = 600)
+```
+
+
+
+
+
