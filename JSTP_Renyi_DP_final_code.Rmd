@@ -27,10 +27,16 @@ rdiscrete_gaussian <- function(n_samples, sigma) {
   round(rnorm(n_samples, mean = 0, sd = sigma))
 }
 
-sample_phat_from_grid <- function(phat_star, n, sigma) {
+sample_phat_from_grid <- function(phat_star, n, sigma, q) {
   grid <- seq(0, 1, by = 1 / n) 
   
-  likelihoods <- exp(-((phat_star - grid)^2 * n^2) / (2 * sigma^2))
+  likelihoods <- exp(-((phat_star - grid)^2 * n^2) / (2 * sigma^2)) * dbinom(grid * n, n, q)
+  
+  # safety check: fall back to phat_star if all likelihoods are zero/NA
+  if (all(is.na(likelihoods)) || sum(likelihoods, na.rm = TRUE) == 0) {
+    return(phat_star)
+  }
+  
   likelihoods <- likelihoods / sum(likelihoods)
   
   sample(grid, size = 1, prob = likelihoods)
@@ -41,7 +47,8 @@ gibbs_sampling_grid <- function(phat_star, n, sigma, iterations) {
   p_samples[1] <- 0.5
   
   for (i in 2:iterations) {
-    phat <- sample_phat_from_grid(phat_star, n, sigma)
+    p <- p_samples[i - 1]
+    phat <- sample_phat_from_grid(phat_star, n, sigma, p)
     alpha_par <- phat * n + 1
     beta_par <- (1 - phat) * n + 1
     
@@ -154,10 +161,16 @@ rdiscrete_gaussian <- function(n_samples, sigma) {
   round(rnorm(n_samples, mean = 0, sd = sigma))
 }
 
-sample_phat_from_grid <- function(phat_star, n, sigma) {
-  grid <- seq(0, 1, by = 1 / n)  
+sample_phat_from_grid <- function(phat_star, n, sigma, q) {
+  grid <- seq(0, 1, by = 1 / n) 
   
-  likelihoods <- exp(-((phat_star - grid)^2 * n^2) / (2 * sigma^2))
+  likelihoods <- exp(-((phat_star - grid)^2 * n^2) / (2 * sigma^2)) * dbinom(grid * n, n, q)
+  
+  # safety check: fall back to phat_star if all likelihoods are zero/NA
+  if (all(is.na(likelihoods)) || sum(likelihoods, na.rm = TRUE) == 0) {
+    return(phat_star)
+  }
+  
   likelihoods <- likelihoods / sum(likelihoods)
   
   sample(grid, size = 1, prob = likelihoods)
@@ -168,7 +181,8 @@ gibbs_sampling_grid <- function(phat_star, n, sigma, iterations) {
   p_samples[1] <- 0.5
   
   for (i in 2:iterations) {
-    phat <- sample_phat_from_grid(phat_star, n, sigma)
+    p <- p_samples[i - 1]
+    phat <- sample_phat_from_grid(phat_star, n, sigma, p)
     alpha_par <- phat * n + 1
     beta_par <- (1 - phat) * n + 1
     
@@ -239,7 +253,6 @@ for (p_true in ps) {
 }
 
 bayesian_coverage_results <- data.frame()
-
 for (epsilon in epsilons) {
   for (p in ps) {
     result <- bayesian_simulation_results[[paste0("Epsilon_", epsilon, "_p_", p)]]
@@ -262,7 +275,6 @@ for (epsilon in epsilons) {
 
 cat("\nBayesian Coverage, Interval Bounds, and Average Length Results:\n")
 print(bayesian_coverage_results)
-
 cat("\nExample of Detailed Results for Selected Epsilon and p:\n")
 for (epsilon in c(0.1, 0.5)) {
   for (p in c(0.1, 0.5)) {
@@ -285,10 +297,16 @@ rdiscrete_gaussian <- function(n_samples, sigma) {
   round(rnorm(n_samples, mean = 0, sd = sigma))
 }
 
-sample_phat_from_grid <- function(phat_star, n, sigma) {
+sample_phat_from_grid <- function(phat_star, n, sigma, q) {
   grid <- seq(0, 1, by = 1 / n) 
   
-  likelihoods <- exp(-((phat_star - grid)^2 * n^2) / (2 * sigma^2))
+  likelihoods <- exp(-((phat_star - grid)^2 * n^2) / (2 * sigma^2)) * dbinom(grid * n, n, q)
+  
+  # safety check: fall back to phat_star if all likelihoods are zero/NA
+  if (all(is.na(likelihoods)) || sum(likelihoods, na.rm = TRUE) == 0) {
+    return(phat_star)
+  }
+  
   likelihoods <- likelihoods / sum(likelihoods)
   
   sample(grid, size = 1, prob = likelihoods)
@@ -299,7 +317,8 @@ gibbs_sampling_grid <- function(phat_star, n, sigma, iterations) {
   p_samples[1] <- 0.5
   
   for (i in 2:iterations) {
-    phat <- sample_phat_from_grid(phat_star, n, sigma)
+    p <- p_samples[i - 1]
+    phat <- sample_phat_from_grid(phat_star, n, sigma, p)
     alpha_par <- phat * n + 1
     beta_par <- (1 - phat) * n + 1
     
@@ -330,7 +349,7 @@ set.seed(12345)
 
 bayesian_simulation_results <- list()
 
-rdp_alpha <- 10 
+rdp_alpha <- 10  
 
 for (p_true in ps) {
   for (epsilon in epsilons) {
@@ -412,10 +431,16 @@ rdiscrete_gaussian <- function(n_samples, sigma) {
   round(rnorm(n_samples, mean = 0, sd = sigma))
 }
 
-sample_phat_from_grid <- function(phat_star, n, sigma) {
-  grid <- seq(0, 1, by = 1 / n)  
+sample_phat_from_grid <- function(phat_star, n, sigma, q) {
+  grid <- seq(0, 1, by = 1 / n) 
   
-  likelihoods <- exp(-((phat_star - grid)^2 * n^2) / (2 * sigma^2))
+  likelihoods <- exp(-((phat_star - grid)^2 * n^2) / (2 * sigma^2)) * dbinom(grid * n, n, q)
+  
+  # safety check: fall back to phat_star if all likelihoods are zero/NA
+  if (all(is.na(likelihoods)) || sum(likelihoods, na.rm = TRUE) == 0) {
+    return(phat_star)
+  }
+  
   likelihoods <- likelihoods / sum(likelihoods)
   
   sample(grid, size = 1, prob = likelihoods)
@@ -426,7 +451,8 @@ gibbs_sampling_grid <- function(phat_star, n, sigma, iterations) {
   p_samples[1] <- 0.5
   
   for (i in 2:iterations) {
-    phat <- sample_phat_from_grid(phat_star, n, sigma)
+    p <- p_samples[i - 1]
+    phat <- sample_phat_from_grid(phat_star, n, sigma, p)
     alpha_par <- phat * n + 1
     beta_par <- (1 - phat) * n + 1
     
@@ -497,7 +523,6 @@ for (p_true in ps) {
 }
 
 bayesian_coverage_results <- data.frame()
-
 for (epsilon in epsilons) {
   for (p in ps) {
     result <- bayesian_simulation_results[[paste0("Epsilon_", epsilon, "_p_", p)]]
@@ -520,7 +545,6 @@ for (epsilon in epsilons) {
 
 cat("\nBayesian Coverage, Interval Bounds, and Average Length Results:\n")
 print(bayesian_coverage_results)
-
 cat("\nExample of Detailed Results for Selected Epsilon and p:\n")
 for (epsilon in c(0.1, 0.5)) {
   for (p in c(0.1, 0.5)) {
@@ -549,16 +573,16 @@ df_n100 <- data.frame(
   sigma2 = rep(c(10, 3.33, 2, 0.2), each = 4),
   p = rep(c(0.1, 0.2, 0.5, 0.8), times = 4),
   coverage = c(
-    95.78, 95.22, 94.82, 95.22,
-    94.10, 95.00, 95.34, 94.90,
-    95.24, 95.24, 95.52, 94.70,
-    94.08, 94.98, 94.62, 94.14
+    96.0, 95.0, 95.3, 94.8,
+    94.5, 94.6, 95.4, 94.2,
+    95.5, 95.5, 95.6, 95.8,
+    94.1, 94.6, 94.7, 94.2
   ),
   length = c(
-    0.164, 0.195, 0.226, 0.195,
-    0.136, 0.169, 0.204, 0.169,
-    0.129, 0.164, 0.199, 0.164,
-    0.118, 0.155, 0.192, 0.155
+    0.16, 0.20, 0.23, 0.20,
+    0.14, 0.17, 0.20, 0.17,
+    0.13, 0.16, 0.20, 0.16,
+    0.12, 0.15, 0.19, 0.15
   )
 )
 
@@ -569,16 +593,16 @@ df_n1000 <- data.frame(
   sigma2 = rep(c(10, 3.33, 2, 0.2), each = 4),
   p = rep(c(0.1, 0.2, 0.5, 0.8), times = 4),
   coverage = c(
-    94.88, 94.58, 95.58, 95.24,
-    95.26, 94.74, 95.02, 95.24,
-    95.06, 95.26, 94.62, 95.44,
-    95.06, 94.76, 94.98, 94.82
+    94.7, 94.8, 94.8, 94.6,
+    95.3, 95.0, 95.1, 95.1,
+    94.6, 95.1, 94.5, 95.2,
+    94.8, 94.6, 94.9, 95.2
   ),
   length = c(
-    0.039, 0.051, 0.063, 0.051,
-    0.038, 0.050, 0.062, 0.050,
-    0.038, 0.050, 0.062, 0.050,
-    0.037, 0.050, 0.062, 0.050
+    0.04, 0.05, 0.06, 0.05,
+    0.04, 0.05, 0.06, 0.05,
+    0.04, 0.05, 0.06, 0.05,
+    0.04, 0.05, 0.06, 0.05
   )
 )
 
